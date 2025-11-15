@@ -3,9 +3,13 @@ import io from 'socket.io-client';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
-// UPDATED URL (Render Link)
+// DEPLOYED RENDER LINK (Aapka link)
 const ENDPOINT = 'https://mern-chat-app-gark.onrender.com';
-const socket = io(ENDPOINT);
+
+// --- SocketIO limit badhayi ---
+const socket = io(ENDPOINT, {
+    maxHttpBufferSize: 1e7 // 10MB
+});
 
 function Chat() {
     const [room, setRoom] = useState("");
@@ -30,11 +34,11 @@ function Chat() {
 
     const joinRoom = async () => {
         if (username && room !== "") {
-            socket.emit('join_room', room);
+            // Username bhi saath mein bhejein
+            socket.emit('join_room', { room: room, username: username });
             setJoinedRoom(true);
 
             try {
-                // UPDATED AXIOS CALL
                 const res = await axios.get(`${ENDPOINT}/api/messages/${room}`, {
                     headers: { 'x-auth-token': token }
                 });
@@ -47,8 +51,10 @@ function Chat() {
     };
 
     const selectFile = (e) => {
-        setMessage(e.target.files[0].name);
-        setFile(e.target.files[0]);
+        if (e.target.files && e.target.files[0]) {
+            setMessage(e.target.files[0].name);
+            setFile(e.target.files[0]);
+        }
     };
 
     const sendMessage = async () => {
@@ -60,6 +66,10 @@ function Chat() {
                 reader.onload = async () => {
                     imageBase64 = reader.result;
                     await emitMessage(imageBase64);
+                };
+                reader.onerror = (error) => {
+                    console.error("File reading error:", error);
+                    alert("Error reading file");
                 };
             } else {
                 await emitMessage(null);
@@ -79,11 +89,13 @@ function Chat() {
         await socket.emit('send_message', messageData);
         setMessage("");
         setFile(null);
+        document.getElementById("file-upload").value = null;
         socket.emit('stop_typing', { room });
     };
 
     const handleInput = (e) => {
         setMessage(e.target.value);
+        setFile(null);
         socket.emit('typing', { room, username });
         if (typingTimeout) clearTimeout(typingTimeout);
         typingTimeout = setTimeout(() => { socket.emit('stop_typing', { room }); }, 2000);
@@ -94,7 +106,6 @@ function Chat() {
 
         const messageListener = (data) => {
             setMessageList((list) => [...list, data]);
-            if (chatBodyRef.current) chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
         };
 
         socket.on('display_typing', (user) => setTypingUser(`${user} is typing...`));
@@ -125,26 +136,41 @@ function Chat() {
             ) : (
                 <div className="chat-window">
                     <div className="chat-header"><p>Live Chat 🟢 {room}</p></div>
+
                     <div className="chat-body" ref={chatBodyRef}>
                         {messageList.map((msg, index) => (
-                            <div key={index} className="message" id={username === msg.author ? "you" : "other"}>
-                                <div>
-                                    <div className="message-content">
-                                        {msg.image && <img src={msg.image} alt="sent" style={{ maxWidth: "150px", borderRadius: "10px" }} />}
-                                        {msg.message && <p>{msg.message}</p>}
+
+                            (msg.author === 'System')
+                                ? (
+                                    // System Message
+                                    <div key={index} className="chat-notification">
+                                        <p>{msg.message}</p>
                                     </div>
-                                    <div className="message-meta">
-                                        <p id="time">{msg.time}</p>
-                                        <p id="author">{msg.author}</p>
+                                ) : (
+                                    // Normal Message
+                                    <div key={index} className="message" id={username === msg.author ? "you" : "other"}>
+                                        <div>
+                                            <div className="message-content">
+                                                {msg.image && <img src={msg.image} alt="sent" style={{ maxWidth: "150px", borderRadius: "10px", padding: "5px" }} />}
+                                                {msg.message && <p>{msg.message}</p>}
+                                            </div>
+                                            <div className="message-meta">
+                                                <p id="time">{msg.time}</p>
+                                                <p id="author">{msg.author}</p>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            </div>
+                                )
+
                         ))}
                     </div>
-                    <div className="typing-area">{typingUser && <p><em>{typingUser}</em></p>}</div>
+
+                    <div className="typing-area">
+                        <p>{typingUser}</p>
+                    </div>
 
                     <div className="chat-footer">
-                        <label htmlFor="file-upload" style={{ cursor: "pointer", fontSize: "20px", marginRight: "10px" }}>
+                        <label htmlFor="file-upload" style={{ cursor: "pointer", fontSize: "24px", color: "#555", display: "flex", alignItems: "center" }}>
                             📎
                         </label>
                         <input

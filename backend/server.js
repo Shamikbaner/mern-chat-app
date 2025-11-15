@@ -10,14 +10,14 @@ const Message = require('./models/Message');
 
 const app = express();
 
-// --- CORS CONFIGURATION (Sabhi ko allow karega) ---
+// --- CORS CONFIGURATION ---
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST"],
   credentials: true
 }));
 
-// --- FIX: Image Upload Limit (10MB) ---
+// --- Image Upload Limit (10MB) ---
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
@@ -28,16 +28,16 @@ mongoose.connect(process.env.MONGO_URI)
 
 // --- Routes ---
 app.use('/api/auth', require('./routes/auth'));
-app.use('/api/messages', require('./routes/message')); // Yahan check karein 'message' ya 'messages'
+app.use('/api/messages', require('./routes/message')); // Yahan 'message' ya 'messages' check kar lena
 
 // --- Socket.IO Setup ---
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", // Sabhi ko allow
+    origin: "*",
     methods: ["GET", "POST"]
   },
-  // --- FIX: Image Size Limit (10MB) ---
+  // --- Image Size Limit (10MB) ---
   maxHttpBufferSize: 1e7
 });
 
@@ -46,8 +46,20 @@ io.on('connection', (socket) => {
 
   // 1. Room Join
   socket.on('join_room', (data) => {
-    socket.join(data);
-    console.log(`User ${socket.id} joined room: ${data}`);
+    socket.join(data.room);
+
+    // Socket ko username aur room yaad karwayein
+    socket.username = data.username;
+    socket.room = data.room;
+
+    console.log(`User ${socket.username} (ID: ${socket.id}) joined room: ${data.room}`);
+
+    // Sabko "System" message bhejo
+    socket.to(data.room).emit('receive_message', {
+      author: 'System',
+      message: `${data.username} has joined the chat`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    });
   });
 
   // 2. Typing Indicators
@@ -66,20 +78,28 @@ io.on('connection', (socket) => {
         room: data.room,
         author: data.author,
         message: data.message,
-        image: data.image, // Image support
+        image: data.image,
         time: data.time
       });
       await newMessage.save();
 
-      // Room mein sabko bhejo
       io.to(data.room).emit('receive_message', data);
     } catch (error) {
       console.error("Error saving message:", error);
     }
   });
 
+  // 4. Disconnect Handling
   socket.on('disconnect', () => {
     console.log("User Disconnected", socket.id);
+
+    if (socket.username) {
+      io.to(socket.room).emit('receive_message', {
+        author: 'System',
+        message: `${socket.username} has left the chat`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
+    }
   });
 });
 
